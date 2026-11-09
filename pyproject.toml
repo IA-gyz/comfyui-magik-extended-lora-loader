@@ -1,0 +1,16 @@
+[project]
+name = "comfyui-magik-extended-lora-loader"
+version = "1.0.0"
+description = 'Magik Extended Lora Loader'
+authors = [{name = "IA-gyz"}]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/IA-gyz/comfyui-magik-extended-lora-loader"
+
+[tool.comfy]
+PublisherId = "IA-gyz"
+DisplayName = "Magik Extended Lora Loader"
