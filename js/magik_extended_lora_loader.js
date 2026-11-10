@@ -478,8 +478,8 @@ app.registerExtension({
             }
         }
 
-        const DRAG_MIME = "application/x-magik-lora-row";
         let dragIndex = null;
+        let dragPointerActive = false;
 
         function clearDropIndicators() {
             for (const child of list.children) {
@@ -492,10 +492,65 @@ app.registerExtension({
             row.style.boxShadow = after ? "0 3px 0 0 #4a9eff" : "0 -3px 0 0 #4a9eff";
         }
 
-        function isDropAfter(row, e) {
-            const rect = row.getBoundingClientRect();
-            return e.clientY > rect.top + rect.height / 2;
+        function rowAtPoint(clientY) {
+            const rows = list.children;
+            if (!rows.length) return null;
+
+            for (let i = 0; i < rows.length; i++) {
+                const rect = rows[i].getBoundingClientRect();
+                if (clientY >= rect.top && clientY <= rect.bottom) {
+                    return { row: rows[i], index: i, after: clientY > rect.top + rect.height / 2 };
+                }
+            }
+
+            const firstRect = rows[0].getBoundingClientRect();
+            const lastRect = rows[rows.length - 1].getBoundingClientRect();
+
+            if (clientY < firstRect.top) return { row: rows[0], index: 0, after: false };
+            if (clientY > lastRect.bottom) {
+                return { row: rows[rows.length - 1], index: rows.length - 1, after: true };
+            }
+
+            return null;
         }
+
+        const onDragPointerMove = (e) => {
+            if (!dragPointerActive || dragIndex === null) return;
+
+            const hit = rowAtPoint(e.clientY);
+            if (!hit) {
+                clearDropIndicators();
+                return;
+            }
+
+            showDropIndicator(hit.row, hit.after);
+        };
+
+        const onDragPointerUp = (e) => {
+            if (!dragPointerActive) return;
+
+            dragPointerActive = false;
+
+            const from = dragIndex;
+            dragIndex = null;
+            clearDropIndicators();
+
+            if (from !== null) {
+                const hit = rowAtPoint(e.clientY);
+
+                if (hit) {
+                    let target = hit.after ? hit.index + 1 : hit.index;
+                    if (from < target) target -= 1;
+
+                    if (target !== from) {
+                        moveEntry(from, target);
+                        return;
+                    }
+                }
+            }
+
+            renderList();
+        };
 
         function moveEntry(fromIndex, toIndex) {
             const arr = node.properties.multi_loras;
@@ -672,7 +727,6 @@ app.registerExtension({
             const grip = document.createElement("div");
             grip.textContent = "⠿";
             grip.title = "Drag to reorder";
-            grip.draggable = true;
             grip.style.cursor = "grab";
             grip.style.width = "16px";
             grip.style.flexShrink = "0";
@@ -831,65 +885,15 @@ app.registerExtension({
                 syncHidden();
             });
 
-            grip.addEventListener("dragstart", (e) => {
+            grip.addEventListener("pointerdown", (e) => {
+                if (e.button !== 0) return;
+
+                e.preventDefault();
+                e.stopPropagation();
+
                 dragIndex = index;
-                e.dataTransfer.effectAllowed = "move";
-                // Firefox refuses to start a drag without setData.
-                e.dataTransfer.setData(DRAG_MIME, String(index));
-
-                try {
-                    e.dataTransfer.setDragImage(row, 12, 12);
-                } catch (err) {
-                    // ignore, the browser default drag image is fine
-                }
-
-                // Dim after the drag image snapshot has been taken.
-                setTimeout(() => {
-                    row.style.opacity = "0.5";
-                }, 0);
-            });
-
-            grip.addEventListener("dragend", () => {
-                dragIndex = null;
-                clearDropIndicators();
-                applyRowState(row, entry);
-            });
-
-            row.addEventListener("dragover", (e) => {
-                if (dragIndex === null) return;
-
-                e.preventDefault();
-                e.stopPropagation();
-                e.dataTransfer.dropEffect = "move";
-
-                showDropIndicator(row, isDropAfter(row, e));
-            });
-
-            row.addEventListener("dragleave", (e) => {
-                if (dragIndex === null) return;
-                if (e.relatedTarget && row.contains(e.relatedTarget)) return;
-
-                row.style.boxShadow = "none";
-            });
-
-            row.addEventListener("drop", (e) => {
-                if (dragIndex === null) return;
-
-                e.preventDefault();
-                e.stopPropagation();
-
-                const from = dragIndex;
-                let target = isDropAfter(row, e) ? index + 1 : index;
-
-                dragIndex = null;
-                clearDropIndicators();
-
-                // Removing the dragged item shifts everything after it up by one.
-                if (from < target) target -= 1;
-
-                if (target !== from) {
-                    moveEntry(from, target);
-                }
+                dragPointerActive = true;
+                row.style.opacity = "0.5";
             });
 
             rowDescArea.addEventListener("input", () => {
@@ -1271,6 +1275,9 @@ app.registerExtension({
 
         window.addEventListener("mousemove", onMouseMove);
         window.addEventListener("mouseup", onMouseUp);
+        window.addEventListener("pointermove", onDragPointerMove);
+        window.addEventListener("pointerup", onDragPointerUp);
+        window.addEventListener("pointercancel", onDragPointerUp);
 
         const oldOnRemoved = node.onRemoved;
 
@@ -1279,6 +1286,9 @@ app.registerExtension({
 
             window.removeEventListener("mousemove", onMouseMove);
             window.removeEventListener("mouseup", onMouseUp);
+            window.removeEventListener("pointermove", onDragPointerMove);
+            window.removeEventListener("pointerup", onDragPointerUp);
+            window.removeEventListener("pointercancel", onDragPointerUp);
 
             textareaResizeObserver.disconnect();
         };
