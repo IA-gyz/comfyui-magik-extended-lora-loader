@@ -1195,6 +1195,19 @@ app.registerExtension({
                 }
 
                 if (shouldZoom) {
+                    const listAtTop = root.scrollTop <= 0;
+                    const listAtBottom =
+                        root.scrollTop + root.clientHeight >=
+                        root.scrollHeight - 1;
+
+                    if (e.deltaY < 0 && !listAtTop) {
+                        shouldZoom = false;
+                    } else if (e.deltaY > 0 && !listAtBottom) {
+                        shouldZoom = false;
+                    }
+                }
+
+                if (shouldZoom) {
                     app.canvas.canvas.dispatchEvent(
                         new WheelEvent("wheel", {
                             deltaX: e.deltaX,

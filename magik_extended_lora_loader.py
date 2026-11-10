@@ -1,7 +1,9 @@
 # Cloned from the user-supplied Extended LoRA Loader.
 import json
+import logging
 import os
 import tempfile
+import threading
 
 import folder_paths
 from aiohttp import web
@@ -10,6 +12,7 @@ from server import PromptServer
 
 STACK_PRESETS_FILENAME = "stack_presets.json"
 MAX_PRESET_NAME_LENGTH = 100
+STACK_PRESETS_LOCK = threading.Lock()
 
 
 def _stack_presets_path():
@@ -26,6 +29,23 @@ def _stack_presets_path():
         base = os.path.dirname(os.path.abspath(__file__))
 
     return os.path.join(base, "magik_extended_lora_loader", STACK_PRESETS_FILENAME)
+
+
+def _is_within_loras_folder(path):
+    if not path:
+        return False
+
+    real_path = os.path.realpath(path)
+
+    for base in folder_paths.get_folder_paths("loras"):
+        real_base = os.path.realpath(base)
+        try:
+            if os.path.commonpath((real_base, real_path)) == real_base:
+                return True
+        except ValueError:
+            continue
+
+    return False
 
 
 def load_stack_presets():
@@ -217,8 +237,13 @@ class MagikExtendedLoraLoader(LoraLoaderModelOnly):
                 export_enabled = export_enabled.strip().lower() not in ("false", "0", "no", "off")
 
             full_lora_path = folder_paths.get_full_path("loras", lora_name)
-            if not full_lora_path or not os.path.exists(full_lora_path):
-                raise ValueError(f"MagikExtendedLoraLoader: LoRA not found: {lora_name}")
+            if (
+                not full_lora_path
+                or not os.path.exists(full_lora_path)
+                or not _is_within_loras_folder(full_lora_path)
+            ):
+                logging.warning("MagikExtendedLoraLoader: skipping missing LoRA: %s", lora_name)
+                continue
 
             current_model = self._standard_load_lora(
                 model=current_model,
@@ -247,7 +272,11 @@ class GetLoraCoverEndpoint(web.View):
         lora_name = os.path.normpath(lora_name.replace("\\", "/"))
         full_lora_path = folder_paths.get_full_path("loras", lora_name)
 
-        if not full_lora_path or not os.path.exists(full_lora_path):
+        if (
+            not full_lora_path
+            or not os.path.exists(full_lora_path)
+            or not _is_within_loras_folder(full_lora_path)
+        ):
             return web.Response(status=404, text="LoRA not found")
 
         clean_base_path = os.path.splitext(full_lora_path)[0]
@@ -271,7 +300,11 @@ class GetLoraLinkEndpoint(web.View):
         lora_name = os.path.normpath(lora_name.replace("\\", "/"))
         full_lora_path = folder_paths.get_full_path("loras", lora_name)
 
-        if not full_lora_path or not os.path.exists(full_lora_path):
+        if (
+            not full_lora_path
+            or not os.path.exists(full_lora_path)
+            or not _is_within_loras_folder(full_lora_path)
+        ):
             return web.Response(status=404, text="LoRA not found")
 
         clean_base_path = os.path.splitext(full_lora_path)[0]
@@ -308,7 +341,8 @@ class StackPresetsEndpoint(web.View):
 
     async def get(self):
         try:
-            presets = load_stack_presets()
+            with STACK_PRESETS_LOCK:
+                presets = load_stack_presets()
         except Exception as e:
             return web.Response(status=500, text=f"Failed to read presets: {e}")
 
@@ -343,9 +377,10 @@ class StackPresetsEndpoint(web.View):
             return web.Response(status=400, text=str(e))
 
         try:
-            presets = load_stack_presets()
-            presets[name] = preset
-            save_stack_presets(presets)
+            with STACK_PRESETS_LOCK:
+                presets = load_stack_presets()
+                presets[name] = preset
+                save_stack_presets(presets)
         except Exception as e:  # pylint: disable=broad-except
             return web.Response(status=500, text=f"Failed to save preset: {e}")
 
@@ -357,12 +392,13 @@ class StackPresetsEndpoint(web.View):
             return web.Response(status=400, text="Missing 'name'")
 
         try:
-            presets = load_stack_presets()
-            if name not in presets:
-                return web.Response(status=404, text="Preset not found")
+            with STACK_PRESETS_LOCK:
+                presets = load_stack_presets()
+                if name not in presets:
+                    return web.Response(status=404, text="Preset not found")
 
-            del presets[name]
-            save_stack_presets(presets)
+                del presets[name]
+                save_stack_presets(presets)
         except Exception as e:  # pylint: disable=broad-except
             return web.Response(status=500, text=f"Failed to delete preset: {e}")
 
