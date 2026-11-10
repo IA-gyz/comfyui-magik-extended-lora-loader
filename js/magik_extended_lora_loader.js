@@ -582,8 +582,11 @@ app.registerExtension({
 
             // Create a container for the dropdown with search functionality
             const dropdownContainer = document.createElement("div");
-            dropdownContainer.style.position = "relative";
-            dropdownContainer.style.width = "100%";
+            dropdownContainer.style.display = "flex";
+            dropdownContainer.style.flexDirection = "column";
+            dropdownContainer.style.gap = "4px";
+            dropdownContainer.style.flex = "1";
+            dropdownContainer.style.minWidth = "140px";
             
             // Search input field
             const searchInput = document.createElement("input");
@@ -592,6 +595,7 @@ app.registerExtension({
             searchInput.title = "Filter LoRA list by name";
             styleSearchInput(searchInput);
             searchInput.style.width = "100%";
+            searchInput.style.marginBottom = "0";
             
             // Dropdown element
             const select = document.createElement("select");
@@ -604,6 +608,7 @@ app.registerExtension({
             searchInput.addEventListener("input", (e) => {
                 const searchTerm = e.target.value.toLowerCase();
                 const options = select.options;
+                const previousValue = select.value;
                 
                 let firstMatchFound = false;
                 
@@ -627,6 +632,10 @@ app.registerExtension({
                 if (!firstMatchFound && searchTerm) {
                     select.selectedIndex = -1;  // Clear selection
                 }
+
+                if (select.value !== previousValue) {
+                    applySelection();
+                }
             });
             
             // Handle when user selects an option from the dropdown
@@ -643,6 +652,9 @@ app.registerExtension({
                 }
             });
             
+            dropdownContainer.appendChild(searchInput);
+            dropdownContainer.appendChild(select);
+
             // Add the container (which includes both search and select) to topLine
             topLine.appendChild(dropdownContainer);
 
@@ -680,7 +692,6 @@ app.registerExtension({
             topLine.appendChild(grip);
             topLine.appendChild(enable);
             topLine.appendChild(exportLabel);
-            topLine.appendChild(select);
             topLine.appendChild(strength);
             topLine.appendChild(removeBtn);
 
@@ -802,11 +813,13 @@ app.registerExtension({
                 syncHidden();
             });
 
-            select.addEventListener("change", () => {
+            const applySelection = () => {
                 entry.lora_name = select.value;
                 updateCover(cover, entry.lora_name);
                 syncHidden();
-            });
+            };
+
+            select.addEventListener("change", applySelection);
 
             strength.addEventListener("input", () => {
                 const val = parseFloat(strength.value);

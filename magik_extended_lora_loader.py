@@ -90,15 +90,21 @@ def _sanitize_stack_preset(data):
         except ValueError:  # pylint: disable=broad-except
             strength = 1.0
 
-        clean_loras.append(
-            {
-                "enabled": entry.get("enabled", True) is not False,
-                "lora_name": entry.get("lora_name") if isinstance(entry.get("lora_name"), str) else "",
-                "strength_model": strength,
-                "description": entry.get("description") if isinstance(entry.get("description"), str) else "",
-                "triggers": entry.get("triggers") if isinstance(entry.get("triggers"), str) else "",
-            }
-        )
+        clean_entry = {
+            "enabled": entry.get("enabled", True) is not False,
+            "export": entry.get("export", True) is not False,
+            "lora_name": entry.get("lora_name") if isinstance(entry.get("lora_name"), str) else "",
+            "strength_model": strength,
+            "description": entry.get("description") if isinstance(entry.get("description"), str) else "",
+            "triggers": entry.get("triggers") if isinstance(entry.get("triggers"), str) else "",
+        }
+
+        for height_key in ("desc_height", "trig_height"):
+            height = entry.get(height_key)
+            if isinstance(height, (int, float)) and not isinstance(height, bool) and height > 0:
+                clean_entry[height_key] = height
+
+        clean_loras.append(clean_entry)
 
     description = data.get("description")
     return {
