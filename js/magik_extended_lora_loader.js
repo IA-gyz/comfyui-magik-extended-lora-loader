@@ -1064,7 +1064,7 @@ app.registerExtension({
                 syncHidden();
             });
 
-            grip.addEventListener("pointerdown", (e) => {
+            const startDrag = (e) => {
                 if (e.button !== 0) return;
 
                 e.preventDefault();
@@ -1073,6 +1073,14 @@ app.registerExtension({
                 dragIndex = index;
                 dragPointerActive = true;
                 row.style.opacity = "0.5";
+            };
+
+            grip.addEventListener("pointerdown", startDrag);
+
+            row.style.cursor = "grab";
+            row.addEventListener("pointerdown", (e) => {
+                if (e.target.closest("input, select, button, textarea, label, a, img, video")) return;
+                startDrag(e);
             });
 
             rowDescArea.addEventListener("input", () => {
