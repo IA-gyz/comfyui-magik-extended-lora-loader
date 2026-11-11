@@ -473,19 +473,35 @@ app.registerExtension({
         let dragIndex = null;
         let dragPointerActive = false;
 
+        const ghost = document.createElement("div");
+        ghost.style.border = "2px dashed #4a9eff";
+        ghost.style.borderRadius = "6px";
+        ghost.style.minHeight = "48px";
+        ghost.style.boxSizing = "border-box";
+        ghost.style.pointerEvents = "none";
+
+        const currentRows = () => [...list.children].filter((c) => c !== ghost);
+
         function clearDropIndicators() {
+            ghost.remove();
+
             for (const child of list.children) {
                 child.style.boxShadow = "none";
             }
         }
 
-        function showDropIndicator(row, after) {
+        function showDropTarget(hit) {
             clearDropIndicators();
-            row.style.boxShadow = after ? "0 3px 0 0 #4a9eff" : "0 -3px 0 0 #4a9eff";
+
+            const rows = currentRows();
+            const ref = hit.after ? rows[hit.index + 1] || null : rows[hit.index] || null;
+
+            list.insertBefore(ghost, ref);
+            requestSync();
         }
 
         function rowAtPoint(clientY) {
-            const rows = list.children;
+            const rows = currentRows();
             if (!rows.length) return null;
 
             for (let i = 0; i < rows.length; i++) {
@@ -515,7 +531,7 @@ app.registerExtension({
                 return;
             }
 
-            showDropIndicator(hit.row, hit.after);
+            showDropTarget(hit);
         };
 
         const onDragPointerUp = (e) => {
@@ -527,6 +543,9 @@ app.registerExtension({
             dragIndex = null;
             clearDropIndicators();
 
+            const draggedRow = from !== null && from >= 0 ? currentRows()[from] : null;
+            if (draggedRow) draggedRow.style.opacity = "";
+
             if (from !== null) {
                 const hit = rowAtPoint(e.clientY);
 
@@ -536,12 +555,9 @@ app.registerExtension({
 
                     if (target !== from) {
                         moveEntry(from, target);
-                        return;
                     }
                 }
             }
-
-            renderList();
         };
 
         function moveEntry(fromIndex, toIndex) {
@@ -552,7 +568,16 @@ app.registerExtension({
             const item = arr.splice(fromIndex, 1)[0];
             arr.splice(toIndex, 0, item);
 
-            renderList();
+            const rowEls = currentRows();
+            const moved = rowEls[fromIndex];
+            const refIndex = fromIndex > toIndex ? toIndex : toIndex + 1;
+            const ref = refIndex < rowEls.length ? rowEls[refIndex] : null;
+
+            if (moved) {
+                moved.style.opacity = "";
+                list.insertBefore(moved, ref);
+            }
+
             syncHidden();
         }
 
@@ -1067,10 +1092,13 @@ app.registerExtension({
             const startDrag = (e) => {
                 if (e.button !== 0) return;
 
+                const idx = currentRows().indexOf(row);
+                if (idx < 0) return;
+
                 e.preventDefault();
                 e.stopPropagation();
 
-                dragIndex = index;
+                dragIndex = idx;
                 dragPointerActive = true;
                 row.style.opacity = "0.5";
             };
@@ -1096,7 +1124,10 @@ app.registerExtension({
             });
 
             removeBtn.addEventListener("click", () => {
-                node.properties.multi_loras.splice(index, 1);
+                const idx = node.properties.multi_loras.indexOf(entry);
+                if (idx >= 0) {
+                    node.properties.multi_loras.splice(idx, 1);
+                }
                 renderList();
                 syncHidden();
             });
