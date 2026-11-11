@@ -30,14 +30,21 @@ Outputs:
 In the node widget you can:
 
 - **+ Add LoRA** / **Refresh LoRA list** — append a row / re-read the loras folder
+- **Columns** selector — display the LoRA cards in 1–4 columns
 - Search box above each dropdown — filters the LoRA list by name
 - Checkbox per row — enable/disable without removing the row
 - **Export** checkbox — include the row in the `export` output string
-- Strength field — model strength for that LoRA
+- Strength field — model strength for that LoRA; the button row under the LoRA name
+  ("0.05", "0.1" … "1.0") sets the strength on click, and **adds** it when Shift is held
 - Drag the ⣿ grip — reorder rows (application order follows row order)
 - Description / Trigger words textareas — per-LoRA notes; triggers are appended to `text_prompt`
-- Cover image — shown when a sidecar image exists next to the LoRA file
-  (`<lora name>.png|.jpg|.jpeg|.webp`); click it to open the LoRA's source page
+- Preview on the right of each card — shows a custom preview if one was assigned,
+  otherwise the sidecar image next to the LoRA file
+  (`<lora name>.png|.jpg|.jpeg|.webp`), otherwise a placeholder. **Click the preview**
+  to browse the disk and upload your own preview image or video (max 64 MB); it is
+  stored in `<ComfyUI>/user/magik_extended_lora_loader/previews/` and linked to the
+  LoRA via `preview_links.json` in the same folder. The ✕ button on a custom preview
+  removes it (falls back to sidecar/placeholder); 🔗 opens the LoRA's source page
   (reads a sidecar `.url` file containing a `URL=` line)
 
 ### Stack presets
@@ -53,6 +60,9 @@ Registered on the ComfyUI server (same auth model as the rest of the ComfyUI API
 
 - `GET /magik_extended_lora_loader/get_lora_cover?name=<lora>` — sidecar cover image
 - `GET /magik_extended_lora_loader/get_lora_link?name=<lora>` — `{"url": ...}` from the sidecar `.url` file
+- `GET /magik_extended_lora_loader/get_lora_preview?name=<lora>` — custom preview file if linked, else the sidecar cover image; `&info=1` returns `{"kind": "image"|"video"|null, "custom": bool}` instead
+- `POST /magik_extended_lora_loader/set_lora_preview?name=<lora>` — multipart upload (`file` field) of a preview image/video, saved into the node's `previews/` folder and linked to the LoRA
+- `DELETE /magik_extended_lora_loader/set_lora_preview?name=<lora>` — remove the custom preview link and file
 - `GET /magik_extended_lora_loader/stack_presets` — list preset names; `?name=X` — fetch one preset
 - `POST /magik_extended_lora_loader/stack_presets` — save/overwrite a preset (`{"name": ..., "preset": {...}}`)
 - `DELETE /magik_extended_lora_loader/stack_presets?name=X` — delete a preset

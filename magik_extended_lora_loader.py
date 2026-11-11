@@ -1,4 +1,5 @@
 # Cloned from the user-supplied Extended LoRA Loader.
+import hashlib
 import json
 import logging
 import os
@@ -13,12 +14,19 @@ from server import PromptServer
 STACK_PRESETS_FILENAME = "stack_presets.json"
 MAX_PRESET_NAME_LENGTH = 100
 STACK_PRESETS_LOCK = threading.Lock()
+PREVIEW_LINKS_FILENAME = "preview_links.json"
+PREVIEWS_DIR_NAME = "previews"
+PREVIEW_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+PREVIEW_VIDEO_EXTENSIONS = {".mp4", ".webm", ".mov", ".m4v"}
+MAX_PREVIEW_UPLOAD_BYTES = 64 * 1024 * 1024
+PREVIEW_LINKS_LOCK = threading.Lock()
 
 
-def _stack_presets_path():
+def _data_dir():
     """
-    Presets live in the ComfyUI user directory so they survive node updates.
-    Falls back to the node folder if the user directory is unavailable.
+    Node data (presets, custom previews) lives in the ComfyUI user directory
+    so it survives node updates. Falls back to the node folder if the user
+    directory is unavailable.
     """
     try:
         base = folder_paths.get_user_directory()
@@ -28,22 +36,30 @@ def _stack_presets_path():
     if not base:
         base = os.path.dirname(os.path.abspath(__file__))
 
-    return os.path.join(base, "magik_extended_lora_loader", STACK_PRESETS_FILENAME)
+    return os.path.join(base, "magik_extended_lora_loader")
+
+
+def _stack_presets_path():
+    return os.path.join(_data_dir(), STACK_PRESETS_FILENAME)
+
+
+def _is_within_directory(base_dir, path):
+    if not base_dir or not path:
+        return False
+
+    real_base = os.path.realpath(base_dir)
+    real_path = os.path.realpath(path)
+
+    try:
+        return os.path.commonpath((real_base, real_path)) == real_base
+    except ValueError:
+        return False
 
 
 def _is_within_loras_folder(path):
-    if not path:
-        return False
-
-    real_path = os.path.realpath(path)
-
     for base in folder_paths.get_folder_paths("loras"):
-        real_base = os.path.realpath(base)
-        try:
-            if os.path.commonpath((real_base, real_path)) == real_base:
-                return True
-        except ValueError:
-            continue
+        if _is_within_directory(base, path):
+            return True
 
     return False
 
@@ -83,6 +99,78 @@ def save_stack_presets(presets):
         except OSError:
             pass
         raise
+
+
+def _preview_links_path():
+    return os.path.join(_data_dir(), PREVIEW_LINKS_FILENAME)
+
+
+def _previews_dir():
+    return os.path.join(_data_dir(), PREVIEWS_DIR_NAME)
+
+
+def load_preview_links():
+    path = _preview_links_path()
+    if not os.path.exists(path):
+        return {}
+
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    if not isinstance(data, dict):
+        raise ValueError("preview links file must contain a JSON object")
+
+    return {k: v for k, v in data.items() if isinstance(k, str) and isinstance(v, dict)}
+
+
+def save_preview_links(links):
+    path = _preview_links_path()
+    directory = os.path.dirname(path)
+    os.makedirs(directory, exist_ok=True)
+
+    fd, tmp_path = tempfile.mkstemp(dir=directory, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(links, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
+def _sidecar_cover_path(full_lora_path):
+    clean_base_path = os.path.splitext(full_lora_path)[0]
+    possible_extensions = [".png", ".jpg", ".jpeg", ".webp", ".PNG", ".JPG", ".JPEG", ".WEBP"]
+
+    for ext in possible_extensions:
+        img_path = clean_base_path + ext
+        if os.path.exists(img_path):
+            return img_path
+
+    return None
+
+
+def _resolve_preview(lora_name, full_lora_path):
+    with PREVIEW_LINKS_LOCK:
+        links = load_preview_links()
+
+    link = links.get(lora_name)
+    if link:
+        file_name = os.path.basename(str(link.get("file", "")))
+        preview_path = os.path.join(_previews_dir(), file_name)
+
+        if file_name and _is_within_directory(_previews_dir(), preview_path) and os.path.isfile(preview_path):
+            kind = link.get("kind")
+            return preview_path, kind if kind in ("image", "video") else "image", True
+
+    sidecar = _sidecar_cover_path(full_lora_path)
+    if sidecar:
+        return sidecar, "image", False
+
+    return None, None, False
 
 
 def _clean_preset_name(value):
@@ -279,13 +367,9 @@ class GetLoraCoverEndpoint(web.View):
         ):
             return web.Response(status=404, text="LoRA not found")
 
-        clean_base_path = os.path.splitext(full_lora_path)[0]
-        possible_extensions = [".png", ".jpg", ".jpeg", ".webp", ".PNG", ".JPG", ".JPEG", ".WEBP"]
-
-        for ext in possible_extensions:
-            img_path = clean_base_path + ext
-            if os.path.exists(img_path):
-                return web.FileResponse(img_path)
+        sidecar = _sidecar_cover_path(full_lora_path)
+        if sidecar:
+            return web.FileResponse(sidecar)
 
         return web.Response(status=404, text="No cover")
 
@@ -328,6 +412,142 @@ class GetLoraLinkEndpoint(web.View):
                     return web.Response(status=500, text=f"Error reading shortcut: {str(e)}")
 
         return web.Response(status=404, text="No shortcut found")
+
+
+@PromptServer.instance.routes.view("/magik_extended_lora_loader/get_lora_preview")
+class GetLoraPreviewEndpoint(web.View):
+    async def get(self):
+        lora_name = self.request.query.get("name", "")
+        if not lora_name:
+            return web.Response(status=400, text="Missing 'name'")
+
+        lora_name = os.path.normpath(lora_name.replace("\\", "/"))
+        full_lora_path = folder_paths.get_full_path("loras", lora_name)
+
+        if (
+            not full_lora_path
+            or not os.path.exists(full_lora_path)
+            or not _is_within_loras_folder(full_lora_path)
+        ):
+            return web.Response(status=404, text="LoRA not found")
+
+        try:
+            preview_path, kind, custom = _resolve_preview(lora_name, full_lora_path)
+        except Exception as e:
+            return web.Response(status=500, text=f"Failed to read preview links: {e}")
+
+        if self.request.query.get("info"):
+            return web.json_response({"kind": kind, "custom": custom})
+
+        if preview_path:
+            return web.FileResponse(preview_path)
+
+        return web.Response(status=404, text="No preview")
+
+
+@PromptServer.instance.routes.view("/magik_extended_lora_loader/set_lora_preview")
+class SetLoraPreviewEndpoint(web.View):
+    async def post(self):
+        lora_name = self.request.query.get("name", "")
+        if not lora_name:
+            return web.Response(status=400, text="Missing 'name'")
+
+        lora_name = os.path.normpath(lora_name.replace("\\", "/"))
+        full_lora_path = folder_paths.get_full_path("loras", lora_name)
+
+        if (
+            not full_lora_path
+            or not os.path.exists(full_lora_path)
+            or not _is_within_loras_folder(full_lora_path)
+        ):
+            return web.Response(status=404, text="LoRA not found")
+
+        try:
+            post_data = await self.request.post()
+        except Exception:
+            return web.Response(status=400, text="Invalid multipart body")
+
+        upload = post_data.get("file")
+        if upload is None or not getattr(upload, "filename", ""):
+            return web.Response(status=400, text="Missing 'file' field")
+
+        ext = os.path.splitext(upload.filename)[1].lower()
+        if ext in PREVIEW_IMAGE_EXTENSIONS:
+            kind = "image"
+        elif ext in PREVIEW_VIDEO_EXTENSIONS:
+            kind = "video"
+        else:
+            return web.Response(status=400, text=f"Unsupported preview type: {ext or 'unknown'}")
+
+        if self.request.content_length and self.request.content_length > MAX_PREVIEW_UPLOAD_BYTES:
+            return web.Response(status=413, text="Preview file too large")
+
+        digest = hashlib.sha1(lora_name.encode("utf-8")).hexdigest()[:16]
+        safe_name = digest + ext
+
+        previews_dir = _previews_dir()
+        os.makedirs(previews_dir, exist_ok=True)
+        target_path = os.path.join(previews_dir, safe_name)
+
+        fd, tmp_path = tempfile.mkstemp(dir=previews_dir, suffix=".tmp")
+        try:
+            written = 0
+            with os.fdopen(fd, "wb") as f:
+                while True:
+                    chunk = upload.file.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    written += len(chunk)
+                    if written > MAX_PREVIEW_UPLOAD_BYTES:
+                        raise ValueError("Preview file too large")
+                    f.write(chunk)
+            os.replace(tmp_path, target_path)
+        except ValueError as e:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+            return web.Response(status=413, text=str(e))
+        except Exception:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+            raise
+
+        try:
+            with PREVIEW_LINKS_LOCK:
+                links = load_preview_links()
+                links[lora_name] = {"file": safe_name, "kind": kind}
+                save_preview_links(links)
+        except Exception as e:
+            return web.Response(status=500, text=f"Failed to save preview link: {e}")
+
+        return web.json_response({"name": lora_name, "file": safe_name, "kind": kind})
+
+    async def delete(self):
+        lora_name = self.request.query.get("name", "")
+        if not lora_name:
+            return web.Response(status=400, text="Missing 'name'")
+
+        try:
+            with PREVIEW_LINKS_LOCK:
+                links = load_preview_links()
+                link = links.pop(lora_name, None)
+                save_preview_links(links)
+        except Exception as e:
+            return web.Response(status=500, text=f"Failed to update preview links: {e}")
+
+        if link:
+            file_name = os.path.basename(str(link.get("file", "")))
+            preview_path = os.path.join(_previews_dir(), file_name)
+            if file_name and _is_within_directory(_previews_dir(), preview_path) and os.path.isfile(preview_path):
+                try:
+                    os.remove(preview_path)
+                except OSError:
+                    pass
+
+        return web.json_response({"name": lora_name})
 
 
 @PromptServer.instance.routes.view("/magik_extended_lora_loader/stack_presets")

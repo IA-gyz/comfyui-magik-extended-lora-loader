@@ -7,6 +7,7 @@ if (extensionMount < 0) {
     throw new Error("Magik Extended Lora Loader: expected a ComfyUI extension URL.");
 }
 const comfyRoot = moduleURL.pathname.slice(0, extensionMount);
+const PLACEHOLDER_URL = new URL("placeholder.svg", moduleURL).href;
 const [{ app }, { api }] = await Promise.all([
     import(`${comfyRoot}/scripts/app.js`),
     import(`${comfyRoot}/scripts/api.js`),
@@ -65,6 +66,10 @@ app.registerExtension({
 
         if (node.properties.multi_description === undefined) {
             node.properties.multi_description = "";
+        }
+
+        if (node.properties.columns === undefined) {
+            node.properties.columns = 1;
         }
 
         if (!Array.isArray(node.properties.multi_loras) || node.properties.multi_loras.length === 0) {
@@ -257,6 +262,33 @@ app.registerExtension({
         toolbar.appendChild(addBtn);
         toolbar.appendChild(refreshBtn);
 
+        const columnsLabel = document.createElement("label");
+        columnsLabel.textContent = "Columns";
+        columnsLabel.style.color = "#aaa";
+        columnsLabel.style.fontSize = "10px";
+        columnsLabel.style.alignSelf = "center";
+
+        const columnsSelect = document.createElement("select");
+        styleControl(columnsSelect);
+        columnsSelect.title = "Number of columns for the LoRA cards";
+
+        for (const n of [1, 2, 3, 4]) {
+            const opt = document.createElement("option");
+            opt.value = String(n);
+            opt.textContent = String(n);
+            columnsSelect.appendChild(opt);
+        }
+
+        columnsSelect.value = String(node.properties.columns || 1);
+        columnsSelect.addEventListener("change", () => {
+            node.properties.columns = parseInt(columnsSelect.value, 10) || 1;
+            applyColumns();
+            requestSync();
+        });
+
+        toolbar.appendChild(columnsLabel);
+        toolbar.appendChild(columnsSelect);
+
         root.appendChild(toolbar);
         root.appendChild(list);
 
@@ -392,46 +424,6 @@ app.registerExtension({
                     }
                 }
             }
-        }
-
-        function updateCover(img, name) {
-            const container = img.parentElement;
-
-            if (!name) {
-                if (container) {
-                    container.style.display = "none";
-                }
-
-                img.removeAttribute("src");
-                return;
-            }
-
-            const token = Date.now().toString();
-            img.dataset.coverToken = token;
-
-            img.onload = () => {
-                if (img.dataset.coverToken !== token) return;
-
-                if (container) {
-                    container.style.display = "flex";
-                }
-
-                img.style.display = "block";
-                requestSync();
-            };
-
-            img.onerror = () => {
-                if (img.dataset.coverToken !== token) return;
-
-                if (container) {
-                    container.style.display = "none";
-                }
-
-                img.style.display = "none";
-                requestSync();
-            };
-
-            img.src = api.apiURL(`/magik_extended_lora_loader/get_lora_cover?name=${encodeURIComponent(name)}&t=${token}`);
         }
 
         function hideServiceWidgets() {
@@ -749,6 +741,36 @@ app.registerExtension({
             topLine.appendChild(strength);
             topLine.appendChild(removeBtn);
 
+            const strengthBar = document.createElement("div");
+            strengthBar.style.display = "flex";
+            strengthBar.style.gap = "3px";
+            strengthBar.style.flexWrap = "wrap";
+            strengthBar.style.alignItems = "center";
+            strengthBar.title = "Click: set strength · Shift+click: add to current strength";
+
+            const strengthSteps = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
+
+            for (const step of strengthSteps) {
+                const stepBtn = document.createElement("button");
+                stepBtn.type = "button";
+                stepBtn.textContent = step === 0.05 ? "0.05" : step.toFixed(1);
+                stepBtn.title = `Strength ${stepBtn.textContent} (Shift+click to add)`;
+                styleSmallBtn(stepBtn);
+                stepBtn.style.width = "34px";
+
+                stepBtn.addEventListener("click", (e) => {
+                    const current = parseFloat(entry.strength_model);
+                    let next = e.shiftKey ? (Number.isFinite(current) ? current : 0) + step : step;
+                    next = Math.round(next * 100) / 100;
+
+                    entry.strength_model = next;
+                    strength.value = next;
+                    syncHidden();
+                });
+
+                strengthBar.appendChild(stepBtn);
+            }
+
             const contentLine = document.createElement("div");
             contentLine.style.display = "flex";
             contentLine.style.flexDirection = "row";
@@ -801,6 +823,7 @@ app.registerExtension({
             imgContainer.style.display = "none";
             imgContainer.style.alignItems = "flex-start";
             imgContainer.style.flexShrink = "0";
+            imgContainer.style.position = "relative";
 
             const cover = document.createElement("img");
             cover.style.width = "100%";
@@ -812,17 +835,112 @@ app.registerExtension({
             cover.style.backgroundColor = "#151515";
             cover.style.cursor = "pointer";
             cover.style.display = "block";
-            cover.title = "Click to open source link";
+            cover.title = "Click to choose a preview image/video";
+
+            const video = document.createElement("video");
+            video.controls = true;
+            video.preload = "metadata";
+            video.style.width = "100%";
+            video.style.maxHeight = "150px";
+            video.style.borderRadius = "6px";
+            video.style.border = "1px solid #333";
+            video.style.backgroundColor = "#151515";
+            video.style.cursor = "pointer";
+            video.style.display = "none";
+            video.title = "Click to choose a preview image/video";
+
+            cover.onerror = () => {
+                cover.src = PLACEHOLDER_URL;
+            };
+
+            const linkBtn = document.createElement("button");
+            linkBtn.type = "button";
+            linkBtn.textContent = "🔗";
+            linkBtn.title = "Open source link";
+            styleSmallBtn(linkBtn);
+            linkBtn.style.position = "absolute";
+            linkBtn.style.top = "2px";
+            linkBtn.style.right = "2px";
+            linkBtn.style.width = "22px";
+            linkBtn.style.display = "none";
+
+            const clearBtn = document.createElement("button");
+            clearBtn.type = "button";
+            clearBtn.textContent = "✕";
+            clearBtn.title = "Remove custom preview (revert to sidecar image or placeholder)";
+            styleSmallBtn(clearBtn);
+            clearBtn.style.position = "absolute";
+            clearBtn.style.top = "2px";
+            clearBtn.style.left = "2px";
+            clearBtn.style.width = "22px";
+            clearBtn.style.display = "none";
+
+            const fileInput = document.createElement("input");
+            fileInput.type = "file";
+            fileInput.accept = "image/*,video/*";
+            fileInput.style.display = "none";
 
             imgContainer.appendChild(cover);
+            imgContainer.appendChild(video);
+            imgContainer.appendChild(linkBtn);
+            imgContainer.appendChild(clearBtn);
+
+            async function refreshPreview() {
+                const name = select.value;
+
+                if (!name) {
+                    imgContainer.style.display = "none";
+                    return;
+                }
+
+                let meta = { kind: null, custom: false };
+
+                try {
+                    const resp = await api.fetchApi(
+                        `/magik_extended_lora_loader/get_lora_preview?name=${encodeURIComponent(name)}&info=1`
+                    );
+
+                    if (resp.ok) {
+                        meta = await resp.json();
+                    }
+                } catch (error) {
+                    console.error("Failed to fetch preview info:", error);
+                }
+
+                if (select.value !== name) return;
+
+                const token = Date.now().toString();
+
+                if (meta.kind === "video") {
+                    cover.style.display = "none";
+                    cover.removeAttribute("src");
+                    video.src = api.apiURL(`/magik_extended_lora_loader/get_lora_preview?name=${encodeURIComponent(name)}&t=${token}`);
+                    video.style.display = "block";
+                } else {
+                    video.pause();
+                    video.removeAttribute("src");
+                    video.style.display = "none";
+                    cover.src = meta.kind === "image"
+                        ? api.apiURL(`/magik_extended_lora_loader/get_lora_preview?name=${encodeURIComponent(name)}&t=${token}`)
+                        : PLACEHOLDER_URL;
+                    cover.style.display = "block";
+                }
+
+                imgContainer.style.display = "flex";
+                linkBtn.style.display = "block";
+                clearBtn.style.display = meta.custom ? "block" : "none";
+                requestSync();
+            }
 
             contentLine.appendChild(textColumn);
             contentLine.appendChild(imgContainer);
 
             row.appendChild(topLine);
+            row.appendChild(strengthBar);
             row.appendChild(contentLine);
+            row.appendChild(fileInput);
 
-            updateCover(cover, entry.lora_name);
+            refreshPreview();
 
             textareaMetaMap.set(rowDescArea, { entry, key: "desc_height" });
             textareaMetaMap.set(rowTrigArea, { entry, key: "trig_height" });
@@ -830,7 +948,17 @@ app.registerExtension({
             textareaResizeObserver.observe(rowDescArea);
             textareaResizeObserver.observe(rowTrigArea);
 
-            cover.addEventListener("click", async (e) => {
+            cover.addEventListener("click", (e) => {
+                e.stopPropagation();
+                fileInput.click();
+            });
+
+            video.addEventListener("click", (e) => {
+                e.stopPropagation();
+                fileInput.click();
+            });
+
+            linkBtn.addEventListener("click", async (e) => {
                 e.stopPropagation();
 
                 const name = select.value;
@@ -844,14 +972,65 @@ app.registerExtension({
                     if (response.ok) {
                         const data = await response.json();
 
-                        if (data.url) {
-                            if (/^https?:\/\//i.test(data.url)) {
-                                window.open(data.url, "_blank", "noopener,noreferrer");
-                            }
+                        if (data.url && /^https?:\/\//i.test(data.url)) {
+                            window.open(data.url, "_blank", "noopener,noreferrer");
                         }
                     }
                 } catch (error) {
                     console.error("Failed to open LoRA link:", error);
+                }
+            });
+
+            clearBtn.addEventListener("click", async (e) => {
+                e.stopPropagation();
+
+                const name = select.value;
+                if (!name) return;
+
+                try {
+                    const response = await api.fetchApi(
+                        `/magik_extended_lora_loader/set_lora_preview?name=${encodeURIComponent(name)}`,
+                        { method: "DELETE" }
+                    );
+
+                    if (!response.ok) {
+                        notify("error", `Failed to clear preview: ${await readError(response)}`);
+                        return;
+                    }
+
+                    await refreshPreview();
+                } catch (error) {
+                    console.error("Failed to clear preview:", error);
+                    notify("error", "Failed to clear preview (see console)");
+                }
+            });
+
+            fileInput.addEventListener("change", async () => {
+                const name = select.value;
+                const file = fileInput.files && fileInput.files[0];
+                fileInput.value = "";
+
+                if (!name || !file) return;
+
+                const form = new FormData();
+                form.append("file", file);
+
+                try {
+                    const response = await api.fetchApi(
+                        `/magik_extended_lora_loader/set_lora_preview?name=${encodeURIComponent(name)}`,
+                        { method: "POST", body: form }
+                    );
+
+                    if (!response.ok) {
+                        notify("error", `Failed to save preview: ${await readError(response)}`);
+                        return;
+                    }
+
+                    notify("success", `Preview saved for ${name}`);
+                    await refreshPreview();
+                } catch (error) {
+                    console.error("Failed to save preview:", error);
+                    notify("error", "Failed to save preview (see console)");
                 }
             });
 
@@ -869,7 +1048,7 @@ app.registerExtension({
 
             const applySelection = () => {
                 entry.lora_name = select.value;
-                updateCover(cover, entry.lora_name);
+                refreshPreview();
                 syncHidden();
             };
 
@@ -925,6 +1104,19 @@ app.registerExtension({
             }, 0);
 
             return row;
+        }
+
+        function applyColumns() {
+            const cols = Math.min(4, Math.max(1, parseInt(node.properties.columns, 10) || 1));
+
+            if (cols === 1) {
+                list.style.display = "flex";
+                list.style.flexDirection = "column";
+                list.style.gridTemplateColumns = "";
+            } else {
+                list.style.display = "grid";
+                list.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+            }
         }
 
         function renderList() {
@@ -1389,6 +1581,7 @@ app.registerExtension({
 
                 applySavedDescHeight();
                 hideServiceWidgets();
+                applyColumns();
                 renderList();
                 syncHidden();
                 requestSync();
@@ -1447,6 +1640,7 @@ app.registerExtension({
             descArea.value = node.properties.multi_description || "";
 
             applySavedDescHeight();
+            applyColumns();
             renderList();
             syncHidden();
             requestSync();
