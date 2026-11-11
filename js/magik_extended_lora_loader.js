@@ -595,7 +595,7 @@ app.registerExtension({
             }
         }
 
-        function createRow(entry, index) {
+        function createRow(entry) {
             entry.enabled = entry.enabled !== false;
 
             entry.lora_name = entry.lora_name || "";
@@ -1162,8 +1162,8 @@ app.registerExtension({
             list.querySelectorAll("textarea").forEach((el) => textareaResizeObserver.unobserve(el));
             list.innerHTML = "";
 
-            node.properties.multi_loras.forEach((entry, index) => {
-                list.appendChild(createRow(entry, index));
+            node.properties.multi_loras.forEach((entry) => {
+                list.appendChild(createRow(entry));
             });
 
             requestSync();
