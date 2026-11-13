@@ -636,22 +636,8 @@ app.registerExtension({
             enable.style.cursor = "pointer";
             enable.style.flexShrink = "0";
             enable.style.alignSelf = "center";
-
-            // Export checkbox
-            const exportCheckbox = document.createElement("input");
-            const exportLabel = document.createElement("label");
-            exportLabel.style.display = "flex";
-            exportLabel.style.alignItems = "center";
-            exportLabel.style.gap = "4px";
-            exportLabel.style.cursor = "pointer";
-            exportCheckbox.type = "checkbox";
-            exportCheckbox.checked = entry.export !== false;  // Default to true if not set
-            exportCheckbox.title = "Include in Export String";
-            exportCheckbox.style.cursor = "pointer";
-            exportCheckbox.style.flexShrink = "0";
-
-            exportLabel.appendChild(exportCheckbox);
-            exportLabel.appendChild(document.createTextNode("Export"));
+            enable.style.width = "36px";
+            enable.style.height = "36px";
 
             // Create a container for the dropdown with search functionality
             const dropdownContainer = document.createElement("div");
@@ -763,7 +749,6 @@ app.registerExtension({
             removeBtn.style.width = "26px";
 
             topLine.appendChild(grip);
-            topLine.appendChild(exportLabel);
             topLine.appendChild(strength);
             topLine.appendChild(removeBtn);
 
@@ -797,26 +782,21 @@ app.registerExtension({
                 strengthBar.appendChild(stepBtn);
             }
 
-            const contentLine = document.createElement("div");
-            contentLine.style.display = "flex";
-            contentLine.style.flexDirection = "row";
-            contentLine.style.gap = "8px";
-            contentLine.style.alignItems = "flex-start";
-            contentLine.style.width = "100%";
-
-            const textColumn = document.createElement("div");
-            textColumn.style.flex = "1";
-            textColumn.style.display = "flex";
-            textColumn.style.flexDirection = "column";
-            textColumn.style.gap = "4px";
-            textColumn.style.minWidth = "0";
+            const midLine = document.createElement("div");
+            midLine.style.display = "flex";
+            midLine.style.flexDirection = "row";
+            midLine.style.gap = "8px";
+            midLine.style.alignItems = "stretch";
+            midLine.style.flexWrap = "wrap";
+            midLine.style.width = "100%";
 
             const rowTrigArea = document.createElement("textarea");
             rowTrigArea.placeholder = "Trigger words...\nOne line or multiple lines.";
             rowTrigArea.value = entry.triggers;
             styleControl(rowTrigArea);
             rowTrigArea.style.resize = "vertical";
-            rowTrigArea.style.width = "100%";
+            rowTrigArea.style.flex = "1 1 200px";
+            rowTrigArea.style.minWidth = "0";
             rowTrigArea.style.minHeight = "30px";
             rowTrigArea.style.overflowY = "auto";
 
@@ -826,7 +806,8 @@ app.registerExtension({
                 rowTrigArea.style.height = "42px";
             }
 
-            textColumn.appendChild(rowTrigArea);
+            midLine.appendChild(strengthBar);
+            midLine.appendChild(rowTrigArea);
 
             const previewWrap = document.createElement("div");
             previewWrap.style.display = "none";
@@ -993,12 +974,9 @@ app.registerExtension({
                 requestSync();
             }
 
-            contentLine.appendChild(textColumn);
-            contentLine.appendChild(previewWrap);
-
             row.appendChild(topLine);
-            row.appendChild(strengthBar);
-            row.appendChild(contentLine);
+            row.appendChild(midLine);
+            row.appendChild(previewWrap);
             row.appendChild(fileInput);
 
             refreshPreview();
@@ -1085,12 +1063,6 @@ app.registerExtension({
 
             enable.addEventListener("change", () => {
                 entry.enabled = enable.checked;
-                renderList();
-                syncHidden();
-            });
-
-            exportCheckbox.addEventListener("change", () => {
-                entry.export = exportCheckbox.checked;
                 renderList();
                 syncHidden();
             });
