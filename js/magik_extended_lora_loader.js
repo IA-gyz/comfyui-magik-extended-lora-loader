@@ -1063,7 +1063,7 @@ app.registerExtension({
 
             enable.addEventListener("change", () => {
                 entry.enabled = enable.checked;
-                renderList();
+                applyRowState(row, entry);
                 syncHidden();
             });
 

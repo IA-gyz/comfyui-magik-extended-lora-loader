@@ -15,7 +15,8 @@ STACK_PRESETS_FILENAME = "stack_presets.json"
 MAX_PRESET_NAME_LENGTH = 100
 STACK_PRESETS_LOCK = threading.Lock()
 PREVIEW_LINKS_FILENAME = "preview_links.json"
-PREVIEWS_DIR_NAME = "previews"
+DEFAULT_PREVIEWS_DIR = "/home/toto/Documents/lora previews"
+PREVIEWS_DIR_ENV_VAR = "MAGIK_EXTENDED_LORA_PREVIEWS_DIR"
 PREVIEW_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 PREVIEW_VIDEO_EXTENSIONS = {".mp4", ".webm", ".mov", ".m4v"}
 MAX_PREVIEW_UPLOAD_BYTES = 64 * 1024 * 1024
@@ -24,9 +25,10 @@ PREVIEW_LINKS_LOCK = threading.Lock()
 
 def _data_dir():
     """
-    Node data (presets, custom previews) lives in the ComfyUI user directory
+    Node data (presets, preview links) lives in the ComfyUI user directory
     so it survives node updates. Falls back to the node folder if the user
-    directory is unavailable.
+    directory is unavailable. Custom preview files themselves live in
+    _previews_dir().
     """
     try:
         base = folder_paths.get_user_directory()
@@ -106,7 +108,8 @@ def _preview_links_path():
 
 
 def _previews_dir():
-    return os.path.join(_data_dir(), PREVIEWS_DIR_NAME)
+    """Custom preview files live in DEFAULT_PREVIEWS_DIR unless overridden via env var."""
+    return os.environ.get(PREVIEWS_DIR_ENV_VAR) or DEFAULT_PREVIEWS_DIR
 
 
 def load_preview_links():
