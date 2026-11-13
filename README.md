@@ -46,7 +46,9 @@ In the node widget you can:
   `MAGIK_EXTENDED_LORA_PREVIEWS_DIR` environment variable) and linked to the LoRA via
   `preview_links.json` in `<ComfyUI>/user/magik_extended_lora_loader/`. The ✕ button removes all custom previews
   (falls back to sidecar/placeholder); 🔗 opens the LoRA's source page
-  (reads a sidecar `.url` file containing a `URL=` line). Preview URLs embed a
+  (reads a sidecar `.url` file containing a `URL=` line); the ⇧ button under it
+  toggles whether the LoRA name is included in the `export` output string
+  (highlighted when included). Preview URLs embed a
   per-file version token (mtime+size) and are served with `Cache-Control`, so
   unchanged previews are served from the browser cache instead of being re-downloaded
 

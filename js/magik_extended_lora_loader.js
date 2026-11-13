@@ -837,6 +837,24 @@ app.registerExtension({
             linkBtn.style.width = "22px";
             linkBtn.style.display = "none";
 
+            const exportBtn = document.createElement("button");
+            exportBtn.type = "button";
+            exportBtn.textContent = "⇧";
+            exportBtn.title = "Toggle this LoRA in the export output";
+            styleSmallBtn(exportBtn);
+            exportBtn.style.position = "absolute";
+            exportBtn.style.top = "26px";
+            exportBtn.style.right = "2px";
+            exportBtn.style.width = "22px";
+            exportBtn.style.display = "none";
+
+            function updateExportBtn() {
+                const on = entry.export !== false;
+                exportBtn.style.backgroundColor = on ? "#2f6db3" : "#2b2b2b";
+                exportBtn.style.borderColor = on ? "#4a9eff" : "#555";
+                exportBtn.style.color = on ? "#fff" : "#ddd";
+            }
+
             const clearBtn = document.createElement("button");
             clearBtn.type = "button";
             clearBtn.textContent = "✕";
@@ -855,6 +873,7 @@ app.registerExtension({
 
             previewWrap.appendChild(previewStrip);
             previewWrap.appendChild(linkBtn);
+            previewWrap.appendChild(exportBtn);
             previewWrap.appendChild(clearBtn);
 
             function previewURL(name, index, token) {
@@ -884,7 +903,7 @@ app.registerExtension({
                 }
 
                 media.style.width = "96px";
-                media.style.height = "72px";
+                media.style.height = "144px";
                 media.style.objectFit = "cover";
                 media.style.borderRadius = "6px";
                 media.style.border = "1px solid #333";
@@ -909,7 +928,7 @@ app.registerExtension({
                 cell.title = "Add a preview image/video";
                 cell.style.flex = "0 0 auto";
                 cell.style.width = "40px";
-                cell.style.height = "72px";
+                cell.style.height = "144px";
                 cell.style.display = "flex";
                 cell.style.alignItems = "center";
                 cell.style.justifyContent = "center";
@@ -970,6 +989,8 @@ app.registerExtension({
 
                 previewWrap.style.display = "flex";
                 linkBtn.style.display = "block";
+                exportBtn.style.display = "block";
+                updateExportBtn();
                 clearBtn.style.display = previews.some((p) => p.custom) ? "block" : "none";
                 requestSync();
             }
@@ -1006,6 +1027,13 @@ app.registerExtension({
                 } catch (error) {
                     console.error("Failed to open LoRA link:", error);
                 }
+            });
+
+            exportBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                entry.export = entry.export === false;
+                updateExportBtn();
+                syncHidden();
             });
 
             clearBtn.addEventListener("click", async (e) => {
