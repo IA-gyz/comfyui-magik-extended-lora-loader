@@ -625,7 +625,7 @@ app.registerExtension({
             const topLine = document.createElement("div");
             topLine.style.display = "flex";
             topLine.style.gap = "4px";
-            topLine.style.alignItems = "center";
+            topLine.style.alignItems = "stretch";
             topLine.style.flexWrap = "wrap";
             topLine.style.width = "100%";
 
@@ -635,6 +635,7 @@ app.registerExtension({
             enable.title = "Enable/Disable";
             enable.style.cursor = "pointer";
             enable.style.flexShrink = "0";
+            enable.style.alignSelf = "center";
 
             // Export checkbox
             const exportCheckbox = document.createElement("input");
@@ -727,7 +728,7 @@ app.registerExtension({
             dropdownContainer.appendChild(searchInput);
             dropdownContainer.appendChild(select);
 
-            // Add the container (which includes both search and select) to topLine
+            topLine.appendChild(enable);
             topLine.appendChild(dropdownContainer);
 
             fillSelect(select, entry.lora_name);
@@ -752,6 +753,7 @@ app.registerExtension({
             grip.style.lineHeight = "1";
             grip.style.color = "#888";
             grip.style.userSelect = "none";
+            grip.style.alignSelf = "center";
 
             const removeBtn = document.createElement("button");
             removeBtn.type = "button";
@@ -761,7 +763,6 @@ app.registerExtension({
             removeBtn.style.width = "26px";
 
             topLine.appendChild(grip);
-            topLine.appendChild(enable);
             topLine.appendChild(exportLabel);
             topLine.appendChild(strength);
             topLine.appendChild(removeBtn);
