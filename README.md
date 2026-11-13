@@ -1,7 +1,7 @@
 # Magik Extended Lora Loader
 
 A ComfyUI custom node that loads a **stack of LoRAs** in a single node, with a rich
-widget UI: per-LoRA enable/export toggles, strength and trigger words,
+widget UI: per-LoRA enable toggle, strength and trigger words,
 searchable dropdown, drag-to-reorder, multi-image preview strips, and server-side stack presets.
 
 ## Install
@@ -33,11 +33,10 @@ In the node widget you can:
 - **Columns** selector — display the LoRA cards in 1–4 columns
 - Search box above each dropdown — filters the LoRA list by name
 - Checkbox per row — enable/disable without removing the row
-- **Export** checkbox — include the row in the `export` output string
 - Strength field — model strength for that LoRA; the button row under the LoRA name
   ("0.05", "0.1" … "1.0") sets the strength on click, and **adds** it when Shift is held
 - Drag the ⣿ grip — reorder rows (application order follows row order)
-- Trigger words textarea — per-LoRA trigger words, appended to `text_prompt`
+- Trigger words textarea, to the right of the strength quick-buttons row — per-LoRA trigger words, appended to `text_prompt`
 - Preview strip on the right of each card — all previews for the LoRA shown side by
   side: every custom-uploaded preview first, then every sidecar image next to the LoRA
   file (`<lora name>.png|.jpg|.jpeg|.webp|.gif`), otherwise a placeholder. **Click a
