@@ -810,21 +810,6 @@ app.registerExtension({
             textColumn.style.gap = "4px";
             textColumn.style.minWidth = "0";
 
-            const rowDescArea = document.createElement("textarea");
-            rowDescArea.placeholder = "LoRA description...";
-            rowDescArea.value = entry.description;
-            styleControl(rowDescArea);
-            rowDescArea.style.resize = "vertical";
-            rowDescArea.style.width = "100%";
-            rowDescArea.style.minHeight = "30px";
-            rowDescArea.style.overflowY = "auto";
-
-            if (entry.desc_height && entry.desc_height > 30) {
-                rowDescArea.style.height = `${entry.desc_height}px`;
-            } else {
-                rowDescArea.style.height = "58px";
-            }
-
             const rowTrigArea = document.createElement("textarea");
             rowTrigArea.placeholder = "Trigger words...\nOne line or multiple lines.";
             rowTrigArea.value = entry.triggers;
@@ -840,43 +825,24 @@ app.registerExtension({
                 rowTrigArea.style.height = "42px";
             }
 
-            textColumn.appendChild(rowDescArea);
             textColumn.appendChild(rowTrigArea);
 
-            const imgContainer = document.createElement("div");
-            imgContainer.style.width = "130px";
-            imgContainer.style.display = "none";
-            imgContainer.style.alignItems = "flex-start";
-            imgContainer.style.flexShrink = "0";
-            imgContainer.style.position = "relative";
+            const previewWrap = document.createElement("div");
+            previewWrap.style.display = "none";
+            previewWrap.style.flex = "1";
+            previewWrap.style.minWidth = "0";
+            previewWrap.style.position = "relative";
+            previewWrap.style.alignItems = "flex-start";
 
-            const cover = document.createElement("img");
-            cover.style.width = "100%";
-            cover.style.height = "auto";
-            cover.style.maxHeight = "150px";
-            cover.style.objectFit = "contain";
-            cover.style.borderRadius = "6px";
-            cover.style.border = "1px solid #333";
-            cover.style.backgroundColor = "#151515";
-            cover.style.cursor = "pointer";
-            cover.style.display = "block";
-            cover.title = "Click to choose a preview image/video";
-
-            const video = document.createElement("video");
-            video.controls = true;
-            video.preload = "metadata";
-            video.style.width = "100%";
-            video.style.maxHeight = "150px";
-            video.style.borderRadius = "6px";
-            video.style.border = "1px solid #333";
-            video.style.backgroundColor = "#151515";
-            video.style.cursor = "pointer";
-            video.style.display = "none";
-            video.title = "Click to choose a preview image/video";
-
-            cover.onerror = () => {
-                cover.src = PLACEHOLDER_URL;
-            };
+            const previewStrip = document.createElement("div");
+            previewStrip.style.display = "flex";
+            previewStrip.style.flexDirection = "row";
+            previewStrip.style.gap = "6px";
+            previewStrip.style.alignItems = "center";
+            previewStrip.style.width = "100%";
+            previewStrip.style.overflowX = "auto";
+            previewStrip.style.overflowY = "hidden";
+            previewStrip.style.boxSizing = "border-box";
 
             const linkBtn = document.createElement("button");
             linkBtn.type = "button";
@@ -892,7 +858,7 @@ app.registerExtension({
             const clearBtn = document.createElement("button");
             clearBtn.type = "button";
             clearBtn.textContent = "✕";
-            clearBtn.title = "Remove custom preview (revert to sidecar image or placeholder)";
+            clearBtn.title = "Remove custom previews (revert to sidecar images or placeholder)";
             styleSmallBtn(clearBtn);
             clearBtn.style.position = "absolute";
             clearBtn.style.top = "2px";
@@ -905,20 +871,90 @@ app.registerExtension({
             fileInput.accept = "image/*,video/*";
             fileInput.style.display = "none";
 
-            imgContainer.appendChild(cover);
-            imgContainer.appendChild(video);
-            imgContainer.appendChild(linkBtn);
-            imgContainer.appendChild(clearBtn);
+            previewWrap.appendChild(previewStrip);
+            previewWrap.appendChild(linkBtn);
+            previewWrap.appendChild(clearBtn);
+
+            function previewURL(name, index, token) {
+                return api.apiURL(
+                    `/magik_extended_lora_loader/get_lora_preview?name=${encodeURIComponent(name)}&index=${index}&t=${token || Date.now().toString()}`
+                );
+            }
+
+            function makeThumb(name, p) {
+                const cell = document.createElement("div");
+                cell.style.position = "relative";
+                cell.style.flex = "0 0 auto";
+
+                let media;
+
+                if (p.kind === "video") {
+                    media = document.createElement("video");
+                    media.controls = true;
+                    media.preload = "metadata";
+                    media.src = previewURL(name, p.index, p.token);
+                } else {
+                    media = document.createElement("img");
+                    media.src = p.kind === "image" ? previewURL(name, p.index, p.token) : PLACEHOLDER_URL;
+                    media.onerror = () => {
+                        media.src = PLACEHOLDER_URL;
+                    };
+                }
+
+                media.style.width = "96px";
+                media.style.height = "72px";
+                media.style.objectFit = "cover";
+                media.style.borderRadius = "6px";
+                media.style.border = "1px solid #333";
+                media.style.backgroundColor = "#151515";
+                media.style.cursor = "pointer";
+                media.style.display = "block";
+                media.title = "Click to add another preview image/video";
+
+                media.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    fileInput.click();
+                });
+
+                cell.appendChild(media);
+
+                return cell;
+            }
+
+            function makeAddCell() {
+                const cell = document.createElement("div");
+                cell.textContent = "+";
+                cell.title = "Add a preview image/video";
+                cell.style.flex = "0 0 auto";
+                cell.style.width = "40px";
+                cell.style.height = "72px";
+                cell.style.display = "flex";
+                cell.style.alignItems = "center";
+                cell.style.justifyContent = "center";
+                cell.style.border = "1px dashed #555";
+                cell.style.borderRadius = "6px";
+                cell.style.color = "#888";
+                cell.style.fontSize = "18px";
+                cell.style.cursor = "pointer";
+                cell.style.boxSizing = "border-box";
+                cell.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    fileInput.click();
+                });
+                return cell;
+            }
 
             async function refreshPreview() {
                 const name = select.value;
 
+                previewStrip.innerHTML = "";
+
                 if (!name) {
-                    imgContainer.style.display = "none";
+                    previewWrap.style.display = "none";
                     return;
                 }
 
-                let meta = { kind: null, custom: false };
+                let previews = [];
 
                 try {
                     const resp = await api.fetchApi(
@@ -926,7 +962,13 @@ app.registerExtension({
                     );
 
                     if (resp.ok) {
-                        meta = await resp.json();
+                        const meta = await resp.json();
+
+                        if (Array.isArray(meta.previews) && meta.previews.length) {
+                            previews = meta.previews;
+                        } else if (meta.kind) {
+                            previews = [{ index: 0, kind: meta.kind, custom: meta.custom, token: "" }];
+                        }
                     }
                 } catch (error) {
                     console.error("Failed to fetch preview info:", error);
@@ -934,31 +976,24 @@ app.registerExtension({
 
                 if (select.value !== name) return;
 
-                const token = Date.now().toString();
-
-                if (meta.kind === "video") {
-                    cover.style.display = "none";
-                    cover.removeAttribute("src");
-                    video.src = api.apiURL(`/magik_extended_lora_loader/get_lora_preview?name=${encodeURIComponent(name)}&t=${token}`);
-                    video.style.display = "block";
-                } else {
-                    video.pause();
-                    video.removeAttribute("src");
-                    video.style.display = "none";
-                    cover.src = meta.kind === "image"
-                        ? api.apiURL(`/magik_extended_lora_loader/get_lora_preview?name=${encodeURIComponent(name)}&t=${token}`)
-                        : PLACEHOLDER_URL;
-                    cover.style.display = "block";
+                if (!previews.length) {
+                    previews = [{ index: 0, kind: null, custom: false, token: "" }];
                 }
 
-                imgContainer.style.display = "flex";
+                for (const p of previews) {
+                    previewStrip.appendChild(makeThumb(name, p));
+                }
+
+                previewStrip.appendChild(makeAddCell());
+
+                previewWrap.style.display = "flex";
                 linkBtn.style.display = "block";
-                clearBtn.style.display = meta.custom ? "block" : "none";
+                clearBtn.style.display = previews.some((p) => p.custom) ? "block" : "none";
                 requestSync();
             }
 
             contentLine.appendChild(textColumn);
-            contentLine.appendChild(imgContainer);
+            contentLine.appendChild(previewWrap);
 
             row.appendChild(topLine);
             row.appendChild(strengthBar);
@@ -967,21 +1002,9 @@ app.registerExtension({
 
             refreshPreview();
 
-            textareaMetaMap.set(rowDescArea, { entry, key: "desc_height" });
             textareaMetaMap.set(rowTrigArea, { entry, key: "trig_height" });
 
-            textareaResizeObserver.observe(rowDescArea);
             textareaResizeObserver.observe(rowTrigArea);
-
-            cover.addEventListener("click", (e) => {
-                e.stopPropagation();
-                fileInput.click();
-            });
-
-            video.addEventListener("click", (e) => {
-                e.stopPropagation();
-                fileInput.click();
-            });
 
             linkBtn.addEventListener("click", async (e) => {
                 e.stopPropagation();
@@ -1111,12 +1134,6 @@ app.registerExtension({
                 startDrag(e);
             });
 
-            rowDescArea.addEventListener("input", () => {
-                entry.description = rowDescArea.value;
-                syncHidden();
-                requestSync();
-            });
-
             rowTrigArea.addEventListener("input", () => {
                 entry.triggers = rowTrigArea.value;
                 syncHidden();
@@ -1133,10 +1150,6 @@ app.registerExtension({
             });
 
             setTimeout(() => {
-                if (!entry.desc_height) {
-                    fitTextarea(rowDescArea, 58, 160);
-                }
-
                 if (!entry.trig_height) {
                     fitTextarea(rowTrigArea, 42, 160);
                 }

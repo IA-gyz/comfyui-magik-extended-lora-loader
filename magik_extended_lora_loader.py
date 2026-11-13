@@ -141,36 +141,79 @@ def save_preview_links(links):
         raise
 
 
-def _sidecar_cover_path(full_lora_path):
+def _sidecar_cover_paths(full_lora_path):
     clean_base_path = os.path.splitext(full_lora_path)[0]
-    possible_extensions = [".png", ".jpg", ".jpeg", ".webp", ".PNG", ".JPG", ".JPEG", ".WEBP"]
+    possible_extensions = [
+        ".png", ".jpg", ".jpeg", ".webp", ".gif",
+        ".PNG", ".JPG", ".JPEG", ".WEBP", ".GIF",
+    ]
 
+    paths = []
     for ext in possible_extensions:
         img_path = clean_base_path + ext
         if os.path.exists(img_path):
-            return img_path
+            paths.append(img_path)
 
-    return None
+    return paths
 
 
-def _resolve_preview(lora_name, full_lora_path):
+def _sidecar_cover_path(full_lora_path):
+    paths = _sidecar_cover_paths(full_lora_path)
+    return paths[0] if paths else None
+
+
+def _linked_preview_files(link):
+    """Normalized [(file_name, kind), ...] for a preview_links entry (legacy single-file format supported)."""
+    files = link.get("files") if isinstance(link, dict) else None
+
+    if not isinstance(files, list):
+        legacy_file = link.get("file") if isinstance(link, dict) else None
+        files = [{"file": legacy_file, "kind": link.get("kind")}] if legacy_file else []
+
+    result = []
+    for item in files:
+        if not isinstance(item, dict):
+            continue
+        file_name = os.path.basename(str(item.get("file", "")))
+        if not file_name:
+            continue
+        kind = item.get("kind")
+        result.append((file_name, kind if kind in ("image", "video") else "image"))
+
+    return result
+
+
+def _resolve_previews(lora_name, full_lora_path):
+    """
+    All previews for a LoRA as a list of (path, kind, custom): every custom
+    uploaded file first, then every sidecar image next to the LoRA file.
+    """
     with PREVIEW_LINKS_LOCK:
         links = load_preview_links()
 
+    previews = []
     link = links.get(lora_name)
-    if link:
-        file_name = os.path.basename(str(link.get("file", "")))
-        preview_path = os.path.join(_previews_dir(), file_name)
 
-        if file_name and _is_within_directory(_previews_dir(), preview_path) and os.path.isfile(preview_path):
-            kind = link.get("kind")
-            return preview_path, kind if kind in ("image", "video") else "image", True
+    if isinstance(link, dict):
+        for file_name, kind in _linked_preview_files(link):
+            preview_path = os.path.join(_previews_dir(), file_name)
+            if _is_within_directory(_previews_dir(), preview_path) and os.path.isfile(preview_path):
+                previews.append((preview_path, kind, True))
 
-    sidecar = _sidecar_cover_path(full_lora_path)
-    if sidecar:
-        return sidecar, "image", False
+    for sidecar in _sidecar_cover_paths(full_lora_path):
+        if all(path != sidecar for path, _, _ in previews):
+            previews.append((sidecar, "image", False))
 
-    return None, None, False
+    return previews
+
+
+def _preview_token(path):
+    """Stable cache token for a preview file; changes when the file changes on disk."""
+    try:
+        st = os.stat(path)
+        return f"{st.st_mtime_ns:x}-{st.st_size:x}"
+    except OSError:
+        return "0"
 
 
 def _clean_preset_name(value):
@@ -432,15 +475,45 @@ class GetLoraPreviewEndpoint(web.View):
             return web.Response(status=404, text="LoRA not found")
 
         try:
-            preview_path, kind, custom = _resolve_preview(lora_name, full_lora_path)
+            previews = _resolve_previews(lora_name, full_lora_path)
         except Exception as e:
             return web.Response(status=500, text=f"Failed to read preview links: {e}")
 
         if self.request.query.get("info"):
-            return web.json_response({"kind": kind, "custom": custom})
+            return web.json_response({
+                "previews": [
+                    {
+                        "index": i,
+                        "kind": kind,
+                        "custom": custom,
+                        "token": _preview_token(path),
+                    }
+                    for i, (path, kind, custom) in enumerate(previews)
+                ],
+                "kind": previews[0][1] if previews else None,
+                "custom": previews[0][2] if previews else False,
+            })
 
-        if preview_path:
-            return web.FileResponse(preview_path)
+        chosen = None
+        index_param = self.request.query.get("index")
+
+        if index_param is not None:
+            try:
+                index = int(index_param)
+                if 0 <= index < len(previews):
+                    chosen = previews[index]
+            except ValueError:
+                pass
+
+        if chosen is None and previews:
+            chosen = previews[0]
+
+        if chosen:
+            response = web.FileResponse(chosen[0])
+            # Safe to cache long-term: the frontend embeds the per-file version
+            # token (mtime+size) in the URL, so a changed file gets a new URL.
+            response.headers["Cache-Control"] = "public, max-age=86400"
+            return response
 
         return web.Response(status=404, text="No preview")
 
@@ -518,7 +591,19 @@ class SetLoraPreviewEndpoint(web.View):
         try:
             with PREVIEW_LINKS_LOCK:
                 links = load_preview_links()
-                links[lora_name] = {"file": safe_name, "kind": kind}
+                link = links.get(lora_name)
+                if not isinstance(link, dict):
+                    link = {}
+                files = link.get("files")
+                if not isinstance(files, list):
+                    legacy_file = link.get("file")
+                    files = [{"file": legacy_file, "kind": link.get("kind")}] if legacy_file else []
+                files = [f for f in files if isinstance(f, dict) and f.get("file") != safe_name]
+                files.append({"file": safe_name, "kind": kind})
+                link["files"] = files
+                link["file"] = safe_name
+                link["kind"] = kind
+                links[lora_name] = link
                 save_preview_links(links)
         except Exception as e:
             return web.Response(status=500, text=f"Failed to save preview link: {e}")
@@ -538,14 +623,14 @@ class SetLoraPreviewEndpoint(web.View):
         except Exception as e:
             return web.Response(status=500, text=f"Failed to update preview links: {e}")
 
-        if link:
-            file_name = os.path.basename(str(link.get("file", "")))
-            preview_path = os.path.join(_previews_dir(), file_name)
-            if file_name and _is_within_directory(_previews_dir(), preview_path) and os.path.isfile(preview_path):
-                try:
-                    os.remove(preview_path)
-                except OSError:
-                    pass
+        if isinstance(link, dict):
+            for file_name, _kind in _linked_preview_files(link):
+                preview_path = os.path.join(_previews_dir(), file_name)
+                if _is_within_directory(_previews_dir(), preview_path) and os.path.isfile(preview_path):
+                    try:
+                        os.remove(preview_path)
+                    except OSError:
+                        pass
 
         return web.json_response({"name": lora_name})
 
